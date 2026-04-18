@@ -67,11 +67,65 @@ This app is being built as a shared home organiser for a couple to:
 ## Tech stack
 
 - React
+- Vite
 - Framer Motion
 - `@dnd-kit` for drag and drop
 - Lucide React icons
 - shadcn/ui components
 - Tailwind CSS
+
+## Local development
+
+Install dependencies and start the app locally:
+
+1. `npm install`
+2. `npm run dev`
+
+To create a production build:
+
+1. `npm run build`
+2. `npm run preview`
+
+## Project structure
+
+- `src/App.jsx` mounts the task board
+- `src/components/TaskBoardWebsite.jsx` contains the main household board UI
+- `src/components/ui/` contains the local UI primitives used by the board
+- `src/lib/task-board-data.js` contains the household model and local-storage persistence helpers
+- `src/lib/task-board-service.js` contains task CRUD, filtering, grouping, and drag/drop state logic
+- `src/lib/task-board-repository.js` selects the active data source adapter
+- `src/lib/task-board-local-repository.js` keeps the browser-storage prototype behavior
+- `src/lib/task-board-supabase.js` creates the Supabase client when the shared backend is enabled
+- `src/lib/task-board-supabase-repository.js` handles auth, onboarding, task reads/writes, and realtime wiring for Supabase
+- `supabase/migrations/001_initial_schema.sql` creates the database schema, RLS policies, and onboarding RPC functions
+
+## Environment
+
+Copy `.env.example` and adjust values as needed.
+
+- `VITE_TASK_BOARD_DATA_SOURCE=local` keeps the current browser-storage prototype
+- `VITE_TASK_BOARD_DATA_SOURCE=supabase` enables the Supabase repository scaffold
+- `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` are required when using the Supabase repository
+
+The working default remains `local`. When `supabase` is enabled, the app expects the SQL migration in `supabase/migrations/001_initial_schema.sql` to be applied first.
+
+## Supabase Flow
+
+1. Apply `supabase/migrations/001_initial_schema.sql` in your Supabase project.
+2. Create the two user accounts in Supabase Auth.
+3. Set `.env` values from `.env.example`.
+4. Start the app with `VITE_TASK_BOARD_DATA_SOURCE=supabase`.
+5. Sign in with email/password.
+6. The first user creates the household in the onboarding screen.
+7. The second user joins using the household ID.
+
+The Supabase mode now supports:
+
+- sign in / sign out
+- household creation and join onboarding
+- loading household members from the database
+- persisting tasks, subtasks, comments, attachments, and drag order
+- realtime refresh subscriptions for shared household changes
 
 ## Current storage model
 

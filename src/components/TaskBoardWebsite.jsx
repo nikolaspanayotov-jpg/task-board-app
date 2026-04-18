@@ -11,7 +11,6 @@ import {
   Pencil,
   MessageSquare,
   Paperclip,
-  Tag,
   CheckSquare,
   Square,
   GripVertical,
@@ -26,126 +25,46 @@ import {
   PointerSensor,
   KeyboardSensor,
   closestCorners,
+  useDroppable,
   useSensor,
   useSensors,
 } from "@dnd-kit/core";
 import {
   SortableContext,
   verticalListSortingStrategy,
-  arrayMove,
   sortableKeyboardCoordinates,
   useSortable,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Badge } from "@/components/ui/badge";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Textarea } from "@/components/ui/textarea";
-
-const STORAGE_KEY = "household-task-board-v3";
-const SESSION_USER_KEY = "household-task-board-session-user";
-
-const household = {
-  id: "household-1",
-  name: "Home Chores",
-  members: [
-    { id: "nikola", name: "Nikola", shortName: "N", role: "Adult" },
-    { id: "wife", name: "Wife", shortName: "W", role: "Adult" },
-  ],
-};
-
-const initialTasks = [
-  {
-    id: "t1",
-    householdId: household.id,
-    title: "Take bins out",
-    description: "Put general waste and recycling out on Monday evening.",
-    priority: "High",
-    dueDate: "2026-04-20",
-    status: "todo",
-    assignedToUserId: "nikola",
-    createdByUserId: "nikola",
-    completedByUserId: null,
-    completedAt: null,
-    recurringWeekly: true,
-    labels: ["Outside", "Weekly"],
-    comments: [{ id: "c1", text: "Check food waste too." }],
-    attachments: [],
-    subtasks: [
-      { id: "s1", text: "General waste", done: false },
-      { id: "s2", text: "Recycling", done: false },
-    ],
-  },
-  {
-    id: "t2",
-    householdId: household.id,
-    title: "Vacuum downstairs",
-    description: "Living room, hallway, and kitchen floor.",
-    priority: "Medium",
-    dueDate: "2026-04-22",
-    status: "doing",
-    assignedToUserId: "wife",
-    createdByUserId: "nikola",
-    completedByUserId: null,
-    completedAt: null,
-    recurringWeekly: true,
-    labels: ["Cleaning"],
-    comments: [],
-    attachments: [],
-    subtasks: [
-      { id: "s3", text: "Living room", done: true },
-      { id: "s4", text: "Kitchen", done: false },
-    ],
-  },
-  {
-    id: "t3",
-    householdId: household.id,
-    title: "Online grocery order",
-    description: "Place the weekly supermarket order for delivery.",
-    priority: "High",
-    dueDate: "2026-04-19",
-    status: "done",
-    assignedToUserId: "nikola",
-    createdByUserId: "wife",
-    completedByUserId: "nikola",
-    completedAt: "2026-04-18T10:30:00.000Z",
-    recurringWeekly: true,
-    labels: ["Shopping"],
-    comments: [{ id: "c2", text: "Milk and nappies added." }],
-    attachments: [],
-    subtasks: [
-      { id: "s5", text: "Check fridge", done: true },
-      { id: "s6", text: "Submit order", done: true },
-    ],
-  },
-  {
-    id: "t4",
-    householdId: household.id,
-    title: "Clean bathroom sink",
-    description: "Quick bathroom tidy before the weekend.",
-    priority: "Low",
-    dueDate: "2026-04-19",
-    status: "todo",
-    assignedToUserId: null,
-    createdByUserId: "wife",
-    completedByUserId: null,
-    completedAt: null,
-    recurringWeekly: false,
-    labels: ["Cleaning"],
-    comments: [],
-    attachments: [],
-    subtasks: [{ id: "s7", text: "Wipe sink and mirror", done: false }],
-  },
-];
-
-const columns = [
-  { id: "todo", title: "To Do", icon: CircleDashed, subtitle: "Needs doing" },
-  { id: "doing", title: "This Week", icon: Clock3, subtitle: "In progress now" },
-  { id: "done", title: "Done", icon: CheckCircle2, subtitle: "Finished chores" },
-];
+import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
+import { Button } from "./ui/button";
+import { Input } from "./ui/input";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "./ui/dialog";
+import { Badge } from "./ui/badge";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
+import { Textarea } from "./ui/textarea";
+import {
+  columns,
+  countCompletedSubtasks,
+  createEmptyTask,
+  formatCompletedLabel,
+  getMember,
+  household,
+  loadCurrentUserId,
+  persistCurrentUserId,
+} from "../lib/task-board-data";
+import {
+  cloneTask,
+  createDraftTask,
+  deleteTask as removeTask,
+  filterTasks,
+  getBoardStats,
+  groupTasksByColumn,
+  moveTask as moveBoardTask,
+  saveTask as persistTaskDraft,
+  toggleTaskSubtask as toggleBoardSubtask,
+} from "../lib/task-board-service";
+import { createTaskBoardRepository, getTaskBoardDataSource } from "../lib/task-board-repository";
 
 const priorityClasses = {
   High: "bg-red-100 text-red-700 border-red-200",
@@ -153,81 +72,13 @@ const priorityClasses = {
   Low: "bg-emerald-100 text-emerald-700 border-emerald-200",
 };
 
-function uid(prefix = "id") {
-  return `${prefix}-${Math.random().toString(36).slice(2, 9)}`;
-}
+const columnIcons = {
+  todo: CircleDashed,
+  doing: Clock3,
+  done: CheckCircle2,
+};
 
-function createEmptyTask(status = "todo") {
-  return {
-    id: uid("task"),
-    householdId: household.id,
-    title: "",
-    description: "",
-    priority: "Medium",
-    dueDate: "",
-    status,
-    assignedToUserId: null,
-    createdByUserId: household.members[0].id,
-    completedByUserId: null,
-    completedAt: null,
-    recurringWeekly: false,
-    labels: [],
-    comments: [],
-    attachments: [],
-    subtasks: [],
-  };
-}
-
-function loadTasks() {
-  if (typeof window === "undefined") return initialTasks;
-  try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
-    if (!raw) return initialTasks;
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) && parsed.length ? parsed : initialTasks;
-  } catch {
-    return initialTasks;
-  }
-}
-
-function loadCurrentUserId() {
-  if (typeof window === "undefined") return household.members[0].id;
-  return window.localStorage.getItem(SESSION_USER_KEY) || household.members[0].id;
-}
-
-function persistCurrentUserId(userId) {
-  if (typeof window !== "undefined") {
-    window.localStorage.setItem(SESSION_USER_KEY, userId);
-  }
-}
-
-function countCompletedSubtasks(task) {
-  return task.subtasks.filter((item) => item.done).length;
-}
-
-function getMember(userId) {
-  return household.members.find((member) => member.id === userId) || null;
-}
-
-function formatCompletedLabel(task) {
-  if (!task.completedByUserId || !task.completedAt) return null;
-  const member = getMember(task.completedByUserId);
-  const date = new Date(task.completedAt);
-  return `Done by ${member?.name || "Someone"} on ${date.toLocaleDateString()}`;
-}
-
-function buildSearchText(task) {
-  const labels = task.labels.join(" ");
-  const comments = task.comments.map((item) => item.text).join(" ");
-  const assignedName = getMember(task.assignedToUserId)?.name || "Unassigned";
-  return `${task.title} ${task.description} ${task.priority} ${labels} ${comments} ${assignedName}`.toLowerCase();
-}
-
-function sortWithinColumns(taskList) {
-  return columns.flatMap((column) => taskList.filter((task) => task.status === column.id));
-}
-
-function SortableTaskCard({ task, currentUserId, onDelete, onEdit, onToggleSubtask }) {
+function SortableTaskCard({ task, currentUserId, members, onDelete, onEdit, onToggleSubtask }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: task.id,
     data: { type: "task", status: task.status },
@@ -238,9 +89,9 @@ function SortableTaskCard({ task, currentUserId, onDelete, onEdit, onToggleSubta
     transition,
   };
 
-  const assignedMember = getMember(task.assignedToUserId);
+  const assignedMember = getMember(task.assignedToUserId, members);
   const completedSubtasks = countCompletedSubtasks(task);
-  const completedLabel = formatCompletedLabel(task);
+  const completedLabel = formatCompletedLabel(task, members);
   const isMine = task.assignedToUserId === currentUserId;
 
   return (
@@ -360,8 +211,12 @@ function SortableTaskCard({ task, currentUserId, onDelete, onEdit, onToggleSubta
   );
 }
 
-function Column({ column, tasks, currentUserId, onEdit, onDelete, onToggleSubtask }) {
-  const Icon = column.icon;
+function Column({ column, tasks, currentUserId, members, onEdit, onDelete, onToggleSubtask }) {
+  const Icon = columnIcons[column.id];
+  const { isOver, setNodeRef } = useDroppable({
+    id: column.id,
+    data: { type: "column", status: column.id },
+  });
 
   return (
     <div className="flex min-h-[460px] flex-col rounded-3xl border border-slate-200 bg-slate-50/80 p-4 shadow-sm">
@@ -379,13 +234,19 @@ function Column({ column, tasks, currentUserId, onEdit, onDelete, onToggleSubtas
       </div>
 
       <SortableContext items={tasks.map((task) => task.id)} strategy={verticalListSortingStrategy}>
-        <div className="space-y-3">
+        <div
+          ref={setNodeRef}
+          className={`min-h-[140px] space-y-3 rounded-2xl transition ${
+            isOver ? "bg-white/70 ring-2 ring-slate-200" : ""
+          }`}
+        >
           {tasks.length > 0 ? (
             tasks.map((task) => (
               <SortableTaskCard
                 key={task.id}
                 task={task}
                 currentUserId={currentUserId}
+                members={members}
                 onDelete={onDelete}
                 onEdit={onEdit}
                 onToggleSubtask={onToggleSubtask}
@@ -402,7 +263,7 @@ function Column({ column, tasks, currentUserId, onEdit, onDelete, onToggleSubtas
   );
 }
 
-function TaskDialog({ open, onOpenChange, task, setTask, onSave, isEditing }) {
+function TaskDialog({ open, onOpenChange, task, setTask, onSave, isEditing, members }) {
   const labelsText = task.labels.join(", ");
   const [commentText, setCommentText] = useState("");
   const [attachmentName, setAttachmentName] = useState("");
@@ -524,7 +385,7 @@ function TaskDialog({ open, onOpenChange, task, setTask, onSave, isEditing }) {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="unassigned">Unassigned</SelectItem>
-                  {household.members.map((member) => (
+                  {members.map((member) => (
                     <SelectItem key={member.id} value={member.id}>{member.name}</SelectItem>
                   ))}
                 </SelectContent>
@@ -661,50 +522,229 @@ function TaskDialog({ open, onOpenChange, task, setTask, onSave, isEditing }) {
   );
 }
 
+function AuthCard({ authError, authPending, credentials, onChange, onSubmit }) {
+  return (
+    <Card className="mx-auto max-w-lg rounded-[28px] border-slate-200 shadow-sm">
+      <CardHeader>
+        <CardTitle className="text-2xl text-slate-900">Sign In To Your Household Board</CardTitle>
+        <p className="text-sm text-slate-600">
+          Supabase mode is enabled. Sign in with an email/password account from your Supabase project.
+        </p>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {authError ? (
+          <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{authError}</div>
+        ) : null}
+        <Input
+          type="email"
+          value={credentials.email}
+          onChange={(event) => onChange("email", event.target.value)}
+          placeholder="Email"
+          className="rounded-2xl"
+        />
+        <Input
+          type="password"
+          value={credentials.password}
+          onChange={(event) => onChange("password", event.target.value)}
+          placeholder="Password"
+          className="rounded-2xl"
+        />
+        <Button className="w-full rounded-2xl" onClick={onSubmit} disabled={authPending}>
+          {authPending ? "Signing In..." : "Sign In"}
+        </Button>
+      </CardContent>
+    </Card>
+  );
+}
+
+function HouseholdSetupCard({
+  authPending,
+  householdForm,
+  onboardingError,
+  onChange,
+  onCreateHousehold,
+  onJoinHousehold,
+  userEmail,
+}) {
+  return (
+    <Card className="mx-auto max-w-2xl rounded-[28px] border-slate-200 shadow-sm">
+      <CardHeader>
+        <CardTitle className="text-2xl text-slate-900">Connect Your Household</CardTitle>
+        <p className="text-sm text-slate-600">
+          Signed in as {userEmail || "your account"}. Create the first household or join an existing one.
+        </p>
+      </CardHeader>
+      <CardContent className="grid gap-4 md:grid-cols-2">
+        {onboardingError ? (
+          <div className="md:col-span-2 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+            {onboardingError}
+          </div>
+        ) : null}
+        <div className="space-y-3 rounded-3xl border border-slate-200 bg-slate-50 p-5">
+          <h3 className="text-base font-semibold text-slate-900">Create Household</h3>
+          <Input
+            value={householdForm.displayName}
+            onChange={(event) => onChange("displayName", event.target.value)}
+            placeholder="Your display name"
+            className="rounded-2xl bg-white"
+          />
+          <Input
+            value={householdForm.householdName}
+            onChange={(event) => onChange("householdName", event.target.value)}
+            placeholder="Household name"
+            className="rounded-2xl bg-white"
+          />
+          <Button className="w-full rounded-2xl" onClick={onCreateHousehold} disabled={authPending}>
+            {authPending ? "Saving..." : "Create Household"}
+          </Button>
+        </div>
+        <div className="space-y-3 rounded-3xl border border-slate-200 bg-slate-50 p-5">
+          <h3 className="text-base font-semibold text-slate-900">Join Household</h3>
+          <Input
+            value={householdForm.displayName}
+            onChange={(event) => onChange("displayName", event.target.value)}
+            placeholder="Your display name"
+            className="rounded-2xl bg-white"
+          />
+          <Input
+            value={householdForm.householdId}
+            onChange={(event) => onChange("householdId", event.target.value)}
+            placeholder="Household ID"
+            className="rounded-2xl bg-white"
+          />
+          <Button variant="outline" className="w-full rounded-2xl" onClick={onJoinHousehold} disabled={authPending}>
+            {authPending ? "Joining..." : "Join Household"}
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 export default function TaskBoardWebsite() {
-  const [tasks, setTasks] = useState(initialTasks);
+  const repository = useMemo(() => createTaskBoardRepository(), []);
+  const initialState = useMemo(() => repository.getInitialState(), [repository]);
+  const initialCurrentUserId = initialState.currentUserId ?? (repository.type === "local" ? loadCurrentUserId() : null);
+  const [tasks, setTasks] = useState(initialState.tasks);
   const [search, setSearch] = useState("");
   const [open, setOpen] = useState(false);
-  const [draftTask, setDraftTask] = useState(createEmptyTask());
+  const [boardHousehold, setBoardHousehold] = useState(initialState.household || household);
+  const [draftTask, setDraftTask] = useState(() =>
+    createDraftTask(initialCurrentUserId, {
+      defaultMemberId: initialCurrentUserId,
+      householdId: initialState.household?.id || household.id,
+    })
+  );
   const [editingId, setEditingId] = useState(null);
-  const [currentUserId, setCurrentUserId] = useState(household.members[0].id);
+  const [currentUserId, setCurrentUserId] = useState(initialCurrentUserId);
   const [assigneeFilter, setAssigneeFilter] = useState("all");
+  const [boardError, setBoardError] = useState("");
+  const [authError, setAuthError] = useState("");
+  const [householdForm, setHouseholdForm] = useState({
+    displayName: "",
+    householdId: "",
+    householdName: "",
+  });
+  const [isAuthenticated, setIsAuthenticated] = useState(initialState.isAuthenticated);
+  const [isBusy, setIsBusy] = useState(false);
+  const [isRepositoryReady, setIsRepositoryReady] = useState(repository.type === "local" || initialState.isAuthenticated);
+  const [needsOnboarding, setNeedsOnboarding] = useState(initialState.needsOnboarding);
+  const [userEmail, setUserEmail] = useState(initialState.userEmail || "");
+  const [credentials, setCredentials] = useState({ email: "", password: "" });
+  const members = boardHousehold?.members || household.members;
 
   useEffect(() => {
-    setTasks(loadTasks());
-    setCurrentUserId(loadCurrentUserId());
-  }, []);
+    let isCancelled = false;
 
-  useEffect(() => {
-    if (typeof window !== "undefined") {
-      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(tasks));
+    async function hydrateTasks() {
+      try {
+        const loadedTasks = await repository.getState();
+
+        if (isCancelled) return;
+
+        setTasks(loadedTasks.tasks);
+        setBoardHousehold(loadedTasks.household || household);
+        setCurrentUserId(loadedTasks.currentUserId ?? (repository.type === "local" ? loadCurrentUserId() : null));
+        setIsAuthenticated(loadedTasks.isAuthenticated);
+        setNeedsOnboarding(loadedTasks.needsOnboarding);
+        setUserEmail(loadedTasks.userEmail || "");
+        setBoardError("");
+        setIsRepositoryReady(repository.type === "local" || loadedTasks.isAuthenticated);
+      } catch (error) {
+        if (isCancelled) return;
+
+        setBoardError(error instanceof Error ? error.message : "Unable to load task board data.");
+        setIsRepositoryReady(repository.type === "local");
+      }
     }
-  }, [tasks]);
 
-  useEffect(() => {
-    persistCurrentUserId(currentUserId);
-  }, [currentUserId]);
+    hydrateTasks();
 
-  useEffect(() => {
-    const handleStorage = (event) => {
-      if (event.key === STORAGE_KEY && event.newValue) {
-        try {
-          const parsed = JSON.parse(event.newValue);
-          if (Array.isArray(parsed)) setTasks(parsed);
-        } catch {
-          // ignore malformed storage events
-        }
-      }
-      if (event.key === SESSION_USER_KEY && event.newValue) {
-        setCurrentUserId(event.newValue);
-      }
+    return () => {
+      isCancelled = true;
     };
+  }, [repository]);
 
-    if (typeof window !== "undefined") {
-      window.addEventListener("storage", handleStorage);
-      return () => window.removeEventListener("storage", handleStorage);
+  useEffect(() => {
+    if (!isRepositoryReady) return;
+
+    repository.saveTasks(tasks, {
+      currentUserId,
+      householdId: boardHousehold?.id,
+    }).catch((error) => {
+      setBoardError(error instanceof Error ? error.message : "Unable to save task board data.");
+    });
+  }, [boardHousehold?.id, currentUserId, isRepositoryReady, repository, tasks]);
+
+  useEffect(() => {
+    if (repository.type === "local") {
+      persistCurrentUserId(currentUserId);
     }
-  }, []);
+  }, [currentUserId, repository.type]);
+
+  useEffect(() => {
+    return repository.subscribe({
+      householdId: boardHousehold?.id,
+      onStateChange: (nextState) => {
+        setBoardHousehold(nextState.household || household);
+        setCurrentUserId(nextState.currentUserId ?? (repository.type === "local" ? loadCurrentUserId() : null));
+        setIsAuthenticated(nextState.isAuthenticated);
+        setNeedsOnboarding(nextState.needsOnboarding);
+        setUserEmail(nextState.userEmail || "");
+      },
+      onTasksChange: (nextTasks) => {
+        setTasks(nextTasks);
+        setBoardError("");
+      },
+      onUserChange: (nextUserId) => {
+        if (nextUserId) {
+          setCurrentUserId(nextUserId);
+        }
+      },
+      onError: (error) => {
+        setBoardError(error instanceof Error ? error.message : "Unable to subscribe to task updates.");
+      },
+    });
+  }, [boardHousehold?.id, repository]);
+
+  useEffect(() => {
+    return repository.subscribeAuth({
+      onAuthChange: (nextState) => {
+        setTasks(nextState.tasks);
+        setBoardHousehold(nextState.household || household);
+        setCurrentUserId(nextState.currentUserId ?? (repository.type === "local" ? loadCurrentUserId() : null));
+        setIsAuthenticated(nextState.isAuthenticated);
+        setNeedsOnboarding(nextState.needsOnboarding);
+        setUserEmail(nextState.userEmail || "");
+        setBoardError("");
+        setAuthError("");
+        setIsRepositoryReady(repository.type === "local" || nextState.isAuthenticated);
+      },
+      onError: (error) => {
+        setAuthError(error instanceof Error ? error.message : "Unable to sync auth state.");
+      },
+    });
+  }, [repository]);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
@@ -712,135 +752,186 @@ export default function TaskBoardWebsite() {
   );
 
   const filteredTasks = useMemo(() => {
-    const q = search.trim().toLowerCase();
+    return filterTasks(tasks, search, assigneeFilter, currentUserId, members);
+  }, [currentUserId, members, search, tasks, assigneeFilter]);
 
-    return tasks.filter((task) => {
-      const matchesSearch = !q || buildSearchText(task).includes(q);
-      const matchesAssignee =
-        assigneeFilter === "all" ||
-        (assigneeFilter === "mine" && task.assignedToUserId === currentUserId) ||
-        (assigneeFilter === "unassigned" && !task.assignedToUserId) ||
-        task.assignedToUserId === assigneeFilter;
-      return matchesSearch && matchesAssignee;
-    });
-  }, [tasks, search, assigneeFilter, currentUserId]);
-
-  const taskCount = tasks.length;
-  const doneCount = tasks.filter((t) => t.status === "done").length;
-  const progress = taskCount ? Math.round((doneCount / taskCount) * 100) : 0;
-  const totalSubtasks = tasks.reduce((sum, task) => sum + task.subtasks.length, 0);
-  const completedSubtasks = tasks.reduce((sum, task) => sum + countCompletedSubtasks(task), 0);
-  const weeklyRecurringCount = tasks.filter((task) => task.recurringWeekly).length;
+  const { taskCount, doneCount, progress, totalSubtasks, completedSubtasks, weeklyRecurringCount } = useMemo(
+    () => getBoardStats(tasks),
+    [tasks]
+  );
 
   const groupedTasks = useMemo(() => {
-    return columns.reduce((acc, column) => {
-      acc[column.id] = filteredTasks.filter((task) => task.status === column.id);
-      return acc;
-    }, {});
+    return groupTasksByColumn(filteredTasks);
   }, [filteredTasks]);
 
   const openNewTask = () => {
     setEditingId(null);
-    setDraftTask({ ...createEmptyTask(), createdByUserId: currentUserId, assignedToUserId: currentUserId });
+    setDraftTask(
+      createDraftTask(currentUserId, {
+        defaultMemberId: currentUserId,
+        householdId: boardHousehold?.id || household.id,
+      })
+    );
     setOpen(true);
   };
 
   const openEditTask = (task) => {
     setEditingId(task.id);
-    setDraftTask(JSON.parse(JSON.stringify(task)));
+    setDraftTask(cloneTask(task));
     setOpen(true);
   };
 
-  const saveTask = () => {
+  const handleSaveTask = () => {
     if (!draftTask.title.trim()) return;
 
-    const cleanedTask = {
-      ...draftTask,
-      title: draftTask.title.trim(),
-      description: draftTask.description.trim(),
-      createdByUserId: draftTask.createdByUserId || currentUserId,
-      householdId: household.id,
-      completedByUserId: draftTask.status === "done" ? (draftTask.completedByUserId || currentUserId) : null,
-      completedAt: draftTask.status === "done" ? (draftTask.completedAt || new Date().toISOString()) : null,
-    };
-
-    if (editingId) {
-      setTasks((prev) => sortWithinColumns(prev.map((task) => (task.id === editingId ? cleanedTask : task))));
-    } else {
-      setTasks((prev) => sortWithinColumns([{ ...cleanedTask, id: uid("task") }, ...prev]));
-    }
-
+    setTasks((prev) => persistTaskDraft(prev, draftTask, editingId, currentUserId, boardHousehold?.id || household.id));
     setOpen(false);
     setEditingId(null);
-    setDraftTask(createEmptyTask());
-  };
-
-  const handleDeleteTask = (taskId) => {
-    setTasks((prev) => prev.filter((task) => task.id !== taskId));
-    if (editingId === taskId) {
-      setOpen(false);
-      setEditingId(null);
-      setDraftTask(createEmptyTask());
-    }
-  };
-
-  const handleToggleSubtask = (taskId, subtaskId) => {
-    setTasks((prev) =>
-      prev.map((task) => {
-        if (task.id !== taskId) return task;
-
-        const updatedSubtasks = task.subtasks.map((item) =>
-          item.id === subtaskId ? { ...item, done: !item.done } : item
-        );
-        const allDone = updatedSubtasks.length > 0 && updatedSubtasks.every((item) => item.done);
-
-        return {
-          ...task,
-          subtasks: updatedSubtasks,
-          status: allDone ? "done" : task.status,
-          completedByUserId: allDone ? currentUserId : null,
-          completedAt: allDone ? new Date().toISOString() : null,
-        };
+    setDraftTask(
+      createEmptyTask("todo", {
+        defaultMemberId: currentUserId,
+        householdId: boardHousehold?.id || household.id,
       })
     );
   };
 
-  const getTaskById = (taskId) => tasks.find((task) => task.id === taskId);
+  const handleDeleteTask = (taskId) => {
+    setTasks((prev) => removeTask(prev, taskId));
+    if (editingId === taskId) {
+      setOpen(false);
+      setEditingId(null);
+      setDraftTask(
+        createEmptyTask("todo", {
+          defaultMemberId: currentUserId,
+          householdId: boardHousehold?.id || household.id,
+        })
+      );
+    }
+  };
+
+  const handleToggleSubtask = (taskId, subtaskId) => {
+    setTasks((prev) => toggleBoardSubtask(prev, taskId, subtaskId, currentUserId));
+  };
 
   const handleDragEnd = ({ active, over }) => {
     if (!over || active.id === over.id) return;
 
-    const activeTask = getTaskById(active.id);
-    const overTask = getTaskById(over.id);
-    if (!activeTask || !overTask) return;
-
-    const activeColumnTasks = tasks.filter((task) => task.status === activeTask.status);
-    const oldIndex = activeColumnTasks.findIndex((task) => task.id === active.id);
-
-    if (activeTask.status === overTask.status) {
-      const newIndex = activeColumnTasks.findIndex((task) => task.id === over.id);
-      const reorderedColumn = arrayMove(activeColumnTasks, oldIndex, newIndex);
-      const otherTasks = tasks.filter((task) => task.status !== activeTask.status);
-      setTasks(sortWithinColumns([...otherTasks, ...reorderedColumn]));
-      return;
-    }
-
-    const sourceWithoutActive = tasks.filter((task) => task.id !== active.id);
-    const destinationColumnTasks = sourceWithoutActive.filter((task) => task.status === overTask.status);
-    const destinationIndex = destinationColumnTasks.findIndex((task) => task.id === over.id);
-    const movedTask = {
-      ...activeTask,
-      status: overTask.status,
-      completedByUserId: overTask.status === "done" ? currentUserId : null,
-      completedAt: overTask.status === "done" ? new Date().toISOString() : null,
-    };
-    const newDestination = [...destinationColumnTasks];
-    newDestination.splice(destinationIndex, 0, movedTask);
-    const remaining = sourceWithoutActive.filter((task) => task.status !== overTask.status);
-    setTasks(sortWithinColumns([...remaining, ...newDestination]));
+    setTasks((prev) => moveBoardTask(prev, active.id, over.id, currentUserId));
   };
 
-  const currentUser = getMember(currentUserId);
+  const currentUser = getMember(currentUserId, members);
+
+  const updateCredential = (field, value) => {
+    setCredentials((prev) => ({ ...prev, [field]: value }));
+  };
+
+  const updateHouseholdForm = (field, value) => {
+    setHouseholdForm((prev) => ({ ...prev, [field]: value }));
+  };
+
+  const handleSignIn = async () => {
+    setIsBusy(true);
+    setAuthError("");
+
+    try {
+      await repository.signIn(credentials);
+    } catch (error) {
+      setAuthError(error instanceof Error ? error.message : "Unable to sign in.");
+    } finally {
+      setIsBusy(false);
+    }
+  };
+
+  const handleSignOut = async () => {
+    setIsBusy(true);
+    setAuthError("");
+
+    try {
+      await repository.signOut();
+    } catch (error) {
+      setAuthError(error instanceof Error ? error.message : "Unable to sign out.");
+    } finally {
+      setIsBusy(false);
+    }
+  };
+
+  const handleCreateHousehold = async () => {
+    setIsBusy(true);
+    setAuthError("");
+
+    try {
+      await repository.bootstrapHousehold({
+        displayName: householdForm.displayName,
+        householdName: householdForm.householdName,
+      });
+      const nextState = await repository.getState();
+      setTasks(nextState.tasks);
+      setBoardHousehold(nextState.household || household);
+      setCurrentUserId(nextState.currentUserId ?? currentUserId);
+      setNeedsOnboarding(nextState.needsOnboarding);
+      setIsRepositoryReady(true);
+    } catch (error) {
+      setAuthError(error instanceof Error ? error.message : "Unable to create household.");
+    } finally {
+      setIsBusy(false);
+    }
+  };
+
+  const handleJoinHousehold = async () => {
+    setIsBusy(true);
+    setAuthError("");
+
+    try {
+      await repository.joinHousehold({
+        displayName: householdForm.displayName,
+        householdId: householdForm.householdId,
+      });
+      const nextState = await repository.getState();
+      setTasks(nextState.tasks);
+      setBoardHousehold(nextState.household || household);
+      setCurrentUserId(nextState.currentUserId ?? currentUserId);
+      setNeedsOnboarding(nextState.needsOnboarding);
+      setIsRepositoryReady(true);
+    } catch (error) {
+      setAuthError(error instanceof Error ? error.message : "Unable to join household.");
+    } finally {
+      setIsBusy(false);
+    }
+  };
+
+  if (repository.supportsAuth && !isAuthenticated) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-100 via-white to-slate-200 p-4 md:p-8">
+        <div className="mx-auto max-w-7xl pt-10">
+          <AuthCard
+            authError={authError || boardError}
+            authPending={isBusy}
+            credentials={credentials}
+            onChange={updateCredential}
+            onSubmit={handleSignIn}
+          />
+        </div>
+      </div>
+    );
+  }
+
+  if (repository.supportsAuth && needsOnboarding) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-100 via-white to-slate-200 p-4 md:p-8">
+        <div className="mx-auto max-w-7xl pt-10">
+          <HouseholdSetupCard
+            authPending={isBusy}
+            householdForm={householdForm}
+            onboardingError={authError || boardError}
+            onChange={updateHouseholdForm}
+            onCreateHousehold={handleCreateHousehold}
+            onJoinHousehold={handleJoinHousehold}
+            userEmail={userEmail}
+          />
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-100 via-white to-slate-200 p-4 md:p-8">
@@ -852,28 +943,50 @@ export default function TaskBoardWebsite() {
                 <div>
                   <CardTitle className="flex items-center gap-2 text-2xl font-semibold text-slate-900 md:text-3xl">
                     <Home className="h-7 w-7" />
-                    {household.name}
+                    {boardHousehold?.name || household.name}
                   </CardTitle>
                   <p className="mt-2 text-sm text-slate-600">
                     A shared weekly chore board for your household. This version is structured for two people, with assignment, recurring chores, completed-by tracking, and cross-tab syncing.
                   </p>
                 </div>
-                <div className="min-w-[220px] rounded-2xl border border-slate-200 bg-slate-50 p-3">
-                  <p className="mb-2 text-xs font-medium uppercase tracking-wide text-slate-500">Viewing as</p>
-                  <Select value={currentUserId} onValueChange={setCurrentUserId}>
-                    <SelectTrigger className="rounded-2xl bg-white">
-                      <SelectValue placeholder="Choose person" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {household.members.map((member) => (
-                        <SelectItem key={member.id} value={member.id}>{member.name}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
+                {repository.type === "local" ? (
+                  <div className="min-w-[220px] rounded-2xl border border-slate-200 bg-slate-50 p-3">
+                    <p className="mb-2 text-xs font-medium uppercase tracking-wide text-slate-500">Viewing as</p>
+                    <Select value={currentUserId} onValueChange={setCurrentUserId}>
+                      <SelectTrigger className="rounded-2xl bg-white">
+                        <SelectValue placeholder="Choose person" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {members.map((member) => (
+                          <SelectItem key={member.id} value={member.id}>{member.name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                ) : (
+                  <div className="min-w-[220px] rounded-2xl border border-slate-200 bg-slate-50 p-3">
+                    <p className="mb-2 text-xs font-medium uppercase tracking-wide text-slate-500">Signed in as</p>
+                    <div className="flex items-center justify-between gap-3">
+                      <p className="truncate text-sm text-slate-700">{userEmail || currentUser?.name || "Unknown user"}</p>
+                      <Button variant="outline" size="sm" className="rounded-xl" onClick={handleSignOut} disabled={isBusy}>
+                        Sign Out
+                      </Button>
+                    </div>
+                  </div>
+                )}
               </div>
             </CardHeader>
             <CardContent>
+              <div className="mb-4 flex flex-wrap items-center gap-2">
+                <Badge variant="outline" className="rounded-full">
+                  Data source: {getTaskBoardDataSource()}
+                </Badge>
+                {boardError ? (
+                  <Badge variant="outline" className="rounded-full border-rose-200 bg-rose-50 text-rose-700">
+                    {boardError}
+                  </Badge>
+                ) : null}
+              </div>
               <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
                 <div className="flex w-full flex-col gap-3 md:flex-row md:items-center">
                   <div className="relative w-full md:max-w-md">
@@ -898,7 +1011,7 @@ export default function TaskBoardWebsite() {
                         <SelectItem value="all">Everyone</SelectItem>
                         <SelectItem value="mine">Mine</SelectItem>
                         <SelectItem value="unassigned">Unassigned</SelectItem>
-                        {household.members.map((member) => (
+                        {members.map((member) => (
                           <SelectItem key={member.id} value={member.id}>{member.name}</SelectItem>
                         ))}
                       </SelectContent>
@@ -945,7 +1058,7 @@ export default function TaskBoardWebsite() {
                 <div className="rounded-2xl bg-slate-50 px-3 py-3">
                   <div className="flex items-center gap-2">
                     <Users className="h-4 w-4" />
-                    <span>{household.members.length} members</span>
+                    <span>{members.length} members</span>
                   </div>
                 </div>
                 <div className="rounded-2xl bg-slate-50 px-3 py-3">
@@ -970,6 +1083,7 @@ export default function TaskBoardWebsite() {
                 column={column}
                 tasks={groupedTasks[column.id] || []}
                 currentUserId={currentUserId}
+                members={members}
                 onEdit={openEditTask}
                 onDelete={handleDeleteTask}
                 onToggleSubtask={handleToggleSubtask}
@@ -983,8 +1097,9 @@ export default function TaskBoardWebsite() {
           onOpenChange={setOpen}
           task={draftTask}
           setTask={setDraftTask}
-          onSave={saveTask}
+          onSave={handleSaveTask}
           isEditing={Boolean(editingId)}
+          members={members}
         />
 
         <Card className="mt-6 rounded-[28px] border-slate-200 shadow-sm">
